@@ -58,6 +58,15 @@ class Settings(BaseSettings):
     gitlab_api_timeout: int = Field(default=30, env="GITLAB_API_TIMEOUT")
     gitlab_max_retries: int = Field(default=3, env="GITLAB_MAX_RETRIES")
     
+    # GitLab Log Processing
+    gitlab_max_log_size_mb: int = Field(default=10, env="GITLAB_MAX_LOG_SIZE_MB")
+    gitlab_log_context_lines: int = Field(default=50, env="GITLAB_LOG_CONTEXT_LINES")
+    
+    # AI Analysis Settings
+    ai_temperature: float = Field(default=0.3, env="AI_TEMPERATURE")
+    ai_max_tokens: int = Field(default=2000, env="AI_MAX_TOKENS")
+    ai_analysis_timeout: int = Field(default=120, env="AI_ANALYSIS_TIMEOUT")  # seconds
+    
     # AI Providers
     default_ai_provider: str = Field(default="openai", env="DEFAULT_AI_PROVIDER")
     
@@ -100,6 +109,10 @@ class Settings(BaseSettings):
     imap_folder: str = Field(default="INBOX", env="IMAP_FOLDER")
     imap_check_interval: int = Field(default=60, env="IMAP_CHECK_INTERVAL")  # seconds
     imap_gitlab_email: str = Field(default="git_nhs@bidv.com.vn", env="IMAP_GITLAB_EMAIL")
+    email_failure_keywords: str = Field(
+        default="failed,failure,error,exception,job failed,pipeline failed,build failed", 
+        env="EMAIL_FAILURE_KEYWORDS"
+    )
     
     @validator("gitlab_api_token", pre=True, always=True)
     def validate_gitlab_token(cls, v):

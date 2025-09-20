@@ -156,6 +156,7 @@ TRIGGER_MODE=both
 | `IMAP_FOLDER` | Email folder to monitor | No | INBOX |
 | `IMAP_CHECK_INTERVAL` | Check interval in seconds | No | 60 |
 | `IMAP_GITLAB_EMAIL` | Expected GitLab sender email | Yes* | - |
+| `EMAIL_FAILURE_KEYWORDS` | Comma-separated failure keywords | No | failed,failure,error,exception,job failed,pipeline failed,build failed |
 
 *Required when `TRIGGER_MODE=email` or `TRIGGER_MODE=both`
 
@@ -174,6 +175,7 @@ TRIGGER_MODE=both
    IMAP_USER=your-email@gmail.com
    IMAP_APP_PASSWORD=your-app-password  # Not regular password!
    IMAP_GITLAB_EMAIL=noreply@gitlab.com  # Or your GitLab instance email
+   EMAIL_FAILURE_KEYWORDS=failed,failure,error,exception,job failed,pipeline failed,build failed
    ```
 
 3. **Gmail App Password Setup**
@@ -304,12 +306,14 @@ GitLab Pipeline Fails → GitLab sends email → IMAP inbox → Orchestrator mon
    IMAP_APP_PASSWORD=your-app-password
    IMAP_GITLAB_EMAIL=noreply@gitlab.yourcompany.com
    IMAP_CHECK_INTERVAL=60  # Check every 60 seconds
+   EMAIL_FAILURE_KEYWORDS=failed,failure,error,exception,job failed,pipeline failed,build failed
    ```
 
 3. **Email processing features**
    - ✅ Automatic duplicate detection (avoids reprocessing same failures)
    - ✅ GitLab header extraction (project ID, pipeline ID, etc.)
    - ✅ Failure keyword filtering (only processes actual failures)
+   - ✅ Configurable failure keywords via `EMAIL_FAILURE_KEYWORDS` setting
    - ✅ Full integration with GitLab API (fetches logs and context)
    - ✅ Database tracking of processed emails
 

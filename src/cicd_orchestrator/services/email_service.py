@@ -454,10 +454,8 @@ class EmailUtils:
                 return False, f"Email not from configured GitLab email (expected: {expected_gitlab_email}, got: {msg.from_})"
 
             # Check if subject contains failure indicators
-            failure_keywords = [
-                'failed', 'failure', 'error', 'exception', 
-                'job failed', 'pipeline failed', 'build failed'
-            ]
+            failure_keywords_str = settings.email_failure_keywords
+            failure_keywords = [kw.strip() for kw in failure_keywords_str.split(',') if kw.strip()]
             subject_lower = msg.subject.lower()
             if not any(keyword in subject_lower for keyword in failure_keywords):
                 return False, "Email subject doesn't indicate failure"
