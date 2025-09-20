@@ -1,0 +1,179 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "cicd-orchestrator"
+dynamic = ["version"]
+description = "AI-powered CI/CD error analysis and remediation orchestrator"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.11"
+authors = [
+    { name = "Duong Binh", email = "duongbinh@example.com" },
+]
+keywords = ["cicd", "devops", "ai", "automation", "gitlab"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Build Tools",
+    "Topic :: System :: Systems Administration",
+]
+
+dependencies = [
+    # Web framework
+    "fastapi>=0.104.0",
+    "uvicorn[standard]>=0.24.0",
+    
+    # HTTP client
+    "httpx>=0.25.0",
+    
+    # Data validation and serialization
+    "pydantic>=2.5.0",
+    "pydantic-settings>=2.1.0",
+    
+    # Environment and configuration
+    "python-dotenv>=1.0.0",
+    
+    # AI/LLM integration
+    "openai>=1.3.0",
+    "anthropic>=0.7.0",
+    
+    # Database (optional for storing analysis history)
+    "sqlalchemy>=2.0.0",
+    "alembic>=1.13.0",
+    "greenlet>=3.0.0",
+    
+    # Async database driver
+    "asyncpg>=0.29.0",
+    
+    # Logging and monitoring
+    "structlog>=23.2.0",
+    "sentry-sdk[fastapi]>=1.38.0",
+    
+    # Date and time handling
+    "pendulum>=2.1.2",
+    
+    # Security
+    "python-jose[cryptography]>=3.3.0",
+    "passlib[bcrypt]>=1.7.4",
+    
+    # CLI utilities
+    "typer>=0.9.0",
+    "rich>=13.7.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    # Testing
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-cov>=4.1.0",
+    "pytest-mock>=3.12.0",
+    "httpx>=0.25.0",  # For testing API endpoints
+    
+    # Development tools
+    "pre-commit>=3.6.0",
+    "black>=23.11.0",
+    "isort>=5.12.0",
+    "flake8>=6.1.0",
+    "mypy>=1.7.0",
+    "bandit>=1.7.5",
+    
+    # Documentation
+    "mkdocs>=1.5.0",
+    "mkdocs-material>=9.4.0",
+    "mkdocstrings[python]>=0.24.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/duongbinh/cicd-orchestrator"
+Documentation = "https://github.com/duongbinh/cicd-orchestrator#readme"
+Repository = "https://github.com/duongbinh/cicd-orchestrator.git"
+"Bug Tracker" = "https://github.com/duongbinh/cicd-orchestrator/issues"
+
+[project.scripts]
+cicd-orchestrator = "cicd_orchestrator.cli:main"
+
+[tool.hatch.version]
+path = "src/cicd_orchestrator/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/cicd_orchestrator"]
+
+[tool.black]
+target-version = ["py311"]
+line-length = 88
+skip-string-normalization = true
+
+[tool.isort]
+profile = "black"
+multi_line_output = 3
+line_length = 88
+known_first_party = ["cicd_orchestrator"]
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+strict_equality = true
+
+[[tool.mypy.overrides]]
+module = "src.*"
+disallow_untyped_defs = false
+
+[tool.pytest.ini_options]
+testpaths = ["src"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "--strict-markers",
+    "--strict-config",
+    "--cov=cicd_orchestrator",
+    "--cov-report=term-missing:skip-covered",
+    "--cov-report=html",
+    "--cov-report=xml",
+]
+filterwarnings = [
+    "error",
+    "ignore::UserWarning",
+    "ignore::DeprecationWarning",
+]
+markers = [
+    "unit: Unit tests",
+    "integration: Integration tests",
+    "e2e: End-to-end tests",
+]
+
+[tool.coverage.run]
+source = ["src"]
+branch = true
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if self.debug:",
+    "if settings.DEBUG",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if 0:",
+    "if __name__ == .__main__.:",
+    "class .*\\bProtocol\\):",
+    "@(abc\\.)?abstractmethod",
+]
