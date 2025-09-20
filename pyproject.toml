@@ -63,6 +63,9 @@ dependencies = [
     "python-jose[cryptography]>=3.3.0",
     "passlib[bcrypt]>=1.7.4",
     
+    # Email processing
+    "imap-tools>=1.0.0",
+    
     # CLI utilities
     "typer>=0.9.0",
     "rich>=13.7.0",

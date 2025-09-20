@@ -3,10 +3,13 @@
 import asyncio
 import time
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 
 import structlog
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
+from imap_tools import AND
 
 from ..core.config import settings
 from ..core.exceptions import (
@@ -17,6 +20,7 @@ from ..core.exceptions import (
 )
 from ..models.ai import AIAnalysisRequest, AIAnalysisType, AIProvider
 from ..models.gitlab import GitLabJobLog, GitLabProjectInfo
+from ..models.email import ProcessedEmail
 from ..models.orchestrator import (
     OrchestrationRequest,
     OrchestrationResponse,
@@ -34,9 +38,321 @@ logger = structlog.get_logger(__name__)
 class OrchestrationService:
     """Main orchestration service for CI/CD error analysis."""
 
-    def __init__(self):
+    def __init__(self, db: AsyncSession):
         self.ai_service = AIService()
+        self.db = db
         self._active_analyses: Dict[str, OrchestrationResponse] = {}
+        # Email monitoring state
+        self._email_monitoring_task: Optional[asyncio.Task] = None
+        self._email_monitoring_running = False
+        self._last_email_check: Optional[datetime] = None
+
+    async def start_email_monitoring(self):
+        """Start email monitoring as part of orchestration."""
+        if self._email_monitoring_running:
+            logger.warning("Email monitoring already running")
+            return
+            
+        if not settings.imap_enabled:
+            logger.warning("Email monitoring is disabled", imap_enabled=False)
+            return
+            
+        self._email_monitoring_running = True
+        self._email_monitoring_task = asyncio.create_task(self._email_monitoring_loop())
+        
+        logger.info(
+            "Orchestrator started email monitoring",
+            server=settings.imap_server,
+            user=settings.imap_user,
+            check_interval=settings.imap_check_interval
+        )
+
+    async def stop_email_monitoring(self):
+        """Stop email monitoring."""
+        self._email_monitoring_running = False
+        if self._email_monitoring_task:
+            self._email_monitoring_task.cancel()
+            try:
+                await self._email_monitoring_task
+            except asyncio.CancelledError:
+                pass
+        logger.info("Orchestrator stopped email monitoring")
+
+    async def _email_monitoring_loop(self):
+        """Main email monitoring loop controlled by orchestrator."""
+        while self._email_monitoring_running:
+            try:
+                await self._check_and_process_emails()
+                await asyncio.sleep(settings.imap_check_interval)
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(
+                    "Error in orchestrator email monitoring loop",
+                    error=str(e),
+                    exc_info=True
+                )
+                # Continue monitoring despite errors
+                await asyncio.sleep(60)  # Wait before retrying
+
+    async def _check_and_process_emails(self):
+        """Check for new emails and process them through orchestration."""
+        try:
+            from .email_service import EmailUtils
+            
+            logger.debug("Orchestrator checking for new emails")
+            
+            # Calculate date range for fetching emails
+            week_ago = (datetime.now() - timedelta(days=7)).strftime("%d-%b-%Y")
+            
+            with EmailUtils.get_imap_connection() as mailbox:
+                # Search for emails from GitLab in the last week with failure keywords in subject
+                gitlab_email = settings.imap_gitlab_email
+                
+                if not gitlab_email:
+                    logger.warning("IMAP_GITLAB_EMAIL not configured, skipping email check")
+                    return
+                
+                # Simple IMAP search: FROM GitLab AND since last week
+                search_query = f'FROM "{gitlab_email}" SINCE {week_ago}'
+                
+                logger.debug(
+                    "Searching for emails",
+                    query=search_query,
+                    gitlab_email=gitlab_email,
+                    week_ago=week_ago
+                )
+                
+                email_count = 0
+                processed_count = 0
+                
+                for msg in mailbox.fetch(
+                    search_query,
+                    mark_seen=False  # Don't mark as read yet
+                ):
+                    email_count += 1
+                    logger.debug(
+                        "Found email",
+                        subject=getattr(msg, 'subject', 'unknown'),
+                        from_email=getattr(msg, 'from_', 'unknown'),
+                        uid=getattr(msg, 'uid', 'unknown')
+                    )
+                    
+                    # Additional filtering for failure keywords in subject (done in code)
+                    is_valid, validation_error = EmailUtils.validate_email_for_processing(msg)
+                    if not is_valid:
+                        logger.debug(
+                            "Email validation failed",
+                            validation_error=validation_error,
+                            subject=getattr(msg, 'subject', 'unknown')
+                        )
+                        continue
+                        
+                    try:
+                        await self._process_email_message(msg)
+                        processed_count += 1
+                    except Exception as e:
+                        logger.error(
+                            "Orchestrator failed to process email",
+                            message_id=getattr(msg, 'message_id', 'unknown'),
+                            error=str(e),
+                            exc_info=True
+                        )
+                
+                logger.debug(
+                    "Email processing completed",
+                    total_found=email_count,
+                    processed=processed_count
+                )
+                        
+        except Exception as e:
+            logger.error(
+                "Orchestrator error checking emails",
+                error=str(e),
+                exc_info=True
+            )
+
+    async def _process_email_message(self, msg):
+        """Process individual email message through orchestration workflow."""
+        from .email_service import EmailUtils
+        
+        try:
+            # Check if we've already processed this message
+            if await self._is_email_already_processed(msg):
+                logger.debug(
+                    "Email already processed",
+                    message_id=getattr(msg, 'message_id', msg.uid)
+                )
+                return
+
+            # Create database record
+            processed_email = EmailUtils.create_processed_email_record(msg)
+            self.db.add(processed_email)
+            await self.db.commit()
+
+            # Extract GitLab headers
+            gitlab_headers, error_msg = EmailUtils.extract_gitlab_headers(msg)
+            
+            if not gitlab_headers:
+                processed_email.status = "no_gitlab_headers"
+                processed_email.error_message = error_msg
+                await self.db.commit()
+                
+                logger.warning(
+                    "No GitLab headers found in email",
+                    subject=msg.subject,
+                    from_email=msg.from_,
+                    error=error_msg
+                )
+                return
+
+            # Update processed email with GitLab data
+            processed_email.project_id = gitlab_headers["project_id"]
+            processed_email.project_name = gitlab_headers["project_name"]
+            processed_email.project_path = gitlab_headers["project_path"]
+            processed_email.pipeline_id = gitlab_headers["pipeline_id"]
+            processed_email.pipeline_ref = gitlab_headers["pipeline_ref"]
+            processed_email.pipeline_status = gitlab_headers["pipeline_status"]
+            
+            # Store email content
+            if msg.html:
+                processed_email.error_message = msg.html
+            elif msg.text:
+                processed_email.error_message = msg.text
+            
+            processed_email.status = "processing_pipeline"
+            await self.db.commit()
+
+            # Create webhook data and orchestrate processing
+            webhook_data = EmailUtils.create_webhook_from_email(msg, gitlab_headers)
+            request = OrchestrationRequest(
+                webhook_data=webhook_data,
+                include_context=True
+            )
+            
+            # Process through orchestration pipeline
+            try:
+                orchestration_result = await self.process_webhook(request)
+                
+                # Store orchestration results back to email record
+                if orchestration_result.error_analysis:
+                    analysis = orchestration_result.error_analysis
+                    
+                    # Create comprehensive analysis summary
+                    analysis_summary = f"""
+=== AI ANALYSIS RESULTS ===
+Category: {analysis.category.value}
+Severity: {analysis.severity.value}
+Confidence: {analysis.confidence_score:.2f}
+
+Root Cause:
+{analysis.root_cause or 'Not identified'}
+
+Recommendations:
+{chr(10).join([f"- {rec}" for rec in analysis.recommendations])}
+
+Processing Details:
+- Request ID: {orchestration_result.request_id}
+- Processing Time: {orchestration_result.total_processing_time_ms}ms
+- Status: {orchestration_result.status.value}
+
+=== ORIGINAL EMAIL CONTENT ===
+{processed_email.error_message or 'No email content'}
+"""
+                    processed_email.error_message = analysis_summary
+                
+                # Store GitLab logs if orchestrator fetched them
+                if orchestration_result.job_logs:
+                    combined_logs = "\n".join([
+                        f"=== JOB: {job_log.job_name} (ID: {job_log.job_id}) ==="
+                        f"\nStage: {job_log.stage}"
+                        f"\nStatus: {job_log.status}"
+                        f"\nFailure: {job_log.failure_reason or 'N/A'}"
+                        f"\nDuration: {job_log.duration or 0}s"
+                        f"\n\n{job_log.log_content}"
+                        f"\n=== END JOB: {job_log.job_name} ===\n"
+                        for job_log in orchestration_result.job_logs
+                    ])
+                    processed_email.gitlab_error_log = combined_logs
+                
+                processed_email.status = "completed"
+                logger.info(
+                    "Orchestrator processed email successfully",
+                    project=gitlab_headers["project_name"] or gitlab_headers["project_id"],
+                    pipeline=gitlab_headers["pipeline_id"],
+                    orchestration_status=orchestration_result.status.value,
+                    has_ai_analysis=bool(orchestration_result.error_analysis),
+                    processing_time_ms=orchestration_result.total_processing_time_ms
+                )
+                
+            except Exception as orchestration_error:
+                processed_email.status = "orchestration_failed"
+                processed_email.error_message = f"Orchestration failed: {str(orchestration_error)}\n\nOriginal email:\n{processed_email.error_message}"
+                logger.error(
+                    "Orchestration failed for email",
+                    project_id=gitlab_headers["project_id"],
+                    pipeline_id=gitlab_headers["pipeline_id"],
+                    error=str(orchestration_error)
+                )
+            
+            await self.db.commit()
+            
+        except Exception as e:
+            # Update status to error if something goes wrong
+            try:
+                if 'processed_email' in locals():
+                    processed_email.status = "error"
+                    error_content = str(e)
+                    if hasattr(msg, 'html') and msg.html:
+                        error_content += f"\n\n--- EMAIL HTML CONTENT ---\n{msg.html}"
+                    elif hasattr(msg, 'text') and msg.text:
+                        error_content += f"\n\n--- EMAIL TEXT CONTENT ---\n{msg.text}"
+                    processed_email.error_message = error_content
+                    await self.db.commit()
+            except Exception as commit_error:
+                logger.error(
+                    "Failed to update email status to error",
+                    commit_error=str(commit_error)
+                )
+            
+            logger.error(
+                "Orchestrator failed to process email",
+                message_id=getattr(msg, 'message_id', 'unknown'),
+                subject=getattr(msg, 'subject', 'unknown'),
+                error=str(e),
+                exc_info=True
+            )
+
+    async def _is_email_already_processed(self, msg) -> bool:
+        """Check if email message has already been processed."""
+        try:
+            # First check by message_id (more reliable)
+            message_id_raw = msg.headers.get("message-id")
+            if isinstance(message_id_raw, tuple) and message_id_raw:
+                message_id = message_id_raw[0]
+            else:
+                message_id = message_id_raw
+                
+            if message_id:
+                result = await self.db.execute(
+                    select(ProcessedEmail).where(ProcessedEmail.message_id == message_id)
+                )
+                if result.scalar_one_or_none():
+                    return True
+            
+            # Fallback: check by UID
+            result = await self.db.execute(
+                select(ProcessedEmail).where(ProcessedEmail.message_uid == msg.uid)
+            )
+            return result.scalar_one_or_none() is not None
+            
+        except Exception as e:
+            logger.warning(
+                "Error checking if email processed",
+                message_uid=getattr(msg, 'uid', 'unknown'),
+                error=str(e)
+            )
+            return False
 
     async def process_webhook(
         self,
@@ -199,7 +515,7 @@ class OrchestrationService:
         async with GitLabClient(
             base_url=settings.gitlab_base_url,
             api_token=settings.gitlab_api_token,
-            timeout=settings.gitlab_timeout,
+            timeout=settings.gitlab_api_timeout,
         ) as gitlab_client:
             
             try:

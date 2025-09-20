@@ -5,8 +5,10 @@ from typing import Any, Dict, Optional, List
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Path
 from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
 import structlog
 
+from ...core.database import get_database_session
 from ...models.orchestrator import OrchestrationResponse
 from ...services.orchestration_service import OrchestrationService
 
@@ -43,9 +45,11 @@ class AnalysisStatsResponse(BaseModel):
     recent_activity: Dict[str, Any]
 
 
-async def get_orchestration_service() -> OrchestrationService:
+async def get_orchestration_service(
+    db: AsyncSession = Depends(get_database_session)
+) -> OrchestrationService:
     """Get orchestration service dependency."""
-    return OrchestrationService()
+    return OrchestrationService(db)
 
 
 @router.get("/{request_id}",

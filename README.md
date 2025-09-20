@@ -112,7 +112,6 @@ docker-compose logs -f app
 | `OPENAI_API_KEY` | OpenAI API key | No | - |
 | `ANTHROPIC_API_KEY` | Anthropic API key | No | - |
 | `DATABASE_URL` | Database connection URL | No | sqlite+aiosqlite:///./cicd_orchestrator.db |
-| `REDIS_URL` | Redis connection URL | No | redis://localhost:6379/0 |
 | `LOG_LEVEL` | Logging level | No | INFO |
 | `ENVIRONMENT` | Environment (development/production) | No | development |
 

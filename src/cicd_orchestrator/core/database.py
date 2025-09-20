@@ -147,14 +147,20 @@ async def get_database_session():
 
 
 async def init_database():
-    """Initialize database connection."""
+    """Initialize database connection and create tables."""
+    from .database_setup import create_all_tables
+    
     success = await db_manager.initialize()
     if success:
         try:
-            await db_manager.create_tables()
+            # Use the new database setup module
+            await create_all_tables(db_manager.engine)
             logger.info("Database setup completed successfully")
         except Exception as e:
-            logger.warning("Table creation failed", error=str(e))
+            logger.error(
+                "Table creation failed",
+                error=str(e)
+            )
     return success
 
 

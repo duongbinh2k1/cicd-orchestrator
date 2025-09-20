@@ -6,11 +6,15 @@ import random
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Query, HTTPException
 from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
 import structlog
 
 from ...models.gitlab import GitLabWebhook, GitLabJobStatus
-from ...models.orchestrator import OrchestrationRequest
+from ...models.orchestrator import OrchestrationRequest  
+from ...models.email import ProcessedEmail
 from ...services.orchestration_service import OrchestrationService
+from ...services.gitlab_client import GitLabClient
+from ...core.database import get_database_session
 from ...utils.mock_data import mock_loader
 
 logger = structlog.get_logger(__name__)
@@ -344,3 +348,203 @@ async def reload_mock_data() -> Dict[str, str]:
             "status": "error",
             "message": f"Failed to reload mock data: {str(e)}"
         }
+
+
+# ===== GitLab Email Processing Test Endpoints =====
+
+@router.post("/simulate-gitlab-email")
+async def simulate_gitlab_email_processing(
+    project_id: str = "2522",
+    pipeline_id: str = "166693", 
+    project_name: str = "jobOFFByAccount",
+    project_path: str = "svs/jobs/joboffbyaccount",
+    pipeline_ref: str = "uat-19092025",
+    pipeline_status: str = "failed",
+    db: AsyncSession = Depends(get_database_session)
+):
+    """🧪 Simulate processing a GitLab pipeline email with real data."""
+    try:
+        from datetime import timezone
+        
+        logger.info(
+            "Starting GitLab email simulation",
+            project_id=project_id,
+            pipeline_id=pipeline_id,
+            project_name=project_name
+        )
+        
+        # Create test processed email record
+        test_email = ProcessedEmail(
+            message_uid=f"test-{datetime.now().timestamp()}",
+            message_id=f"<test-{project_id}-{pipeline_id}@gitlab.example.com>",
+            received_at=datetime.now(timezone.utc).replace(tzinfo=None),
+            from_email="gitlab@example.com",
+            subject=f"Pipeline #{pipeline_id} has {pipeline_status} for {project_name}",
+            project_id=project_id,
+            project_name=project_name,
+            project_path=project_path,
+            pipeline_id=pipeline_id,
+            pipeline_ref=pipeline_ref,
+            pipeline_status=pipeline_status,
+            status="pending",
+            error_message=f"Test email simulation for pipeline {pipeline_id}"
+        )
+        
+        db.add(test_email)
+        await db.commit()
+        
+        # Update status to fetching GitLab data
+        test_email.status = "fetching_gitlab_data"
+        await db.commit()
+        
+        # Fetch real GitLab logs using existing client
+        try:
+            gitlab_client = GitLabClient()
+            async with gitlab_client as client:
+                failed_jobs = await client.get_failed_jobs(project_id, pipeline_id)
+                
+                if failed_jobs:
+                    all_logs = []
+                    for job in failed_jobs:
+                        try:
+                            job_log = await client.get_job_log(
+                                project_id,
+                                job.id,
+                                max_size_mb=5,
+                                context_lines=50
+                            )
+                            
+                            log_entry = f"""
+=== JOB: {job_log.job_name} (ID: {job_log.job_id}) ===
+Stage: {job_log.stage}
+Status: {job_log.status}
+Failure Reason: {job_log.failure_reason or 'N/A'}
+Duration: {job_log.duration or 0}s
+
+{job_log.log_content}
+
+=== END JOB ===
+
+"""
+                            all_logs.append(log_entry)
+                        except Exception as job_error:
+                            logger.warning("Failed to get job log", job_id=job.id, error=str(job_error))
+                    
+                    if all_logs:
+                        combined_logs = "\n".join(all_logs)
+                        test_email.gitlab_error_log = combined_logs
+                        test_email.status = "completed"
+                    else:
+                        test_email.status = "no_gitlab_logs"
+                else:
+                    test_email.status = "no_failed_jobs"
+                    
+        except Exception as e:
+            test_email.status = "error"
+            test_email.error_message = f"GitLab API error: {str(e)}"
+            logger.error("Failed to fetch GitLab logs", error=str(e))
+        
+        await db.commit()
+        
+        return {
+            "status": "success",
+            "message": "GitLab email simulation completed",
+            "data": {
+                "email_id": test_email.id,
+                "project_id": project_id,
+                "pipeline_id": pipeline_id,
+                "project_name": project_name,
+                "final_status": test_email.status,
+                "has_gitlab_logs": bool(test_email.gitlab_error_log),
+                "gitlab_log_size": len(test_email.gitlab_error_log) if test_email.gitlab_error_log else 0
+            }
+        }
+        
+    except Exception as e:
+        logger.error("Error in GitLab email simulation", error=str(e))
+        raise HTTPException(status_code=500, detail=f"Simulation failed: {str(e)}")
+
+
+@router.get("/gitlab-logs/{project_id}/{pipeline_id}")
+async def get_gitlab_logs_direct(project_id: str, pipeline_id: str):
+    """🔍 Directly fetch GitLab logs for testing API connectivity."""
+    try:
+        gitlab_client = GitLabClient()
+        async with gitlab_client as client:
+            # Get pipeline details
+            pipeline = await client.get_pipeline(project_id, pipeline_id)
+            
+            # Get failed jobs and logs
+            failed_jobs = await client.get_failed_jobs(project_id, pipeline_id)
+            
+            job_logs = []
+            for job in failed_jobs[:3]:  # Limit to first 3 jobs
+                try:
+                    job_log = await client.get_job_log(project_id, job.id, max_size_mb=2, context_lines=30)
+                    job_logs.append({
+                        "job_id": job_log.job_id,
+                        "job_name": job_log.job_name,
+                        "stage": job_log.stage,
+                        "status": job_log.status,
+                        "failure_reason": job_log.failure_reason,
+                        "log_preview": job_log.log_content[:500] + "..." if len(job_log.log_content) > 500 else job_log.log_content
+                    })
+                except Exception as e:
+                    job_logs.append({"job_id": job.id, "error": str(e)})
+            
+            return {
+                "status": "success",
+                "data": {
+                    "project_id": project_id,
+                    "pipeline_id": pipeline_id,
+                    "pipeline_status": pipeline.status,
+                    "pipeline_ref": pipeline.ref,
+                    "failed_jobs_count": len(failed_jobs),
+                    "job_logs": job_logs
+                }
+            }
+            
+    except Exception as e:
+        logger.error("Error fetching GitLab logs", error=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to fetch logs: {str(e)}")
+
+
+@router.get("/processed-emails")
+async def get_processed_emails(
+    limit: int = 10,
+    db: AsyncSession = Depends(get_database_session)
+):
+    """📧 Get recent processed emails for testing."""
+    try:
+        from sqlalchemy import select, desc
+        
+        result = await db.execute(
+            select(ProcessedEmail)
+            .order_by(desc(ProcessedEmail.processed_at))
+            .limit(limit)
+        )
+        emails = result.scalars().all()
+        
+        email_data = []
+        for email in emails:
+            email_data.append({
+                "id": email.id,
+                "subject": email.subject,
+                "project_name": email.project_name,
+                "pipeline_id": email.pipeline_id,
+                "pipeline_status": email.pipeline_status,
+                "status": email.status,
+                "processed_at": email.processed_at,
+                "has_gitlab_logs": bool(email.gitlab_error_log),
+                "gitlab_log_size": len(email.gitlab_error_log) if email.gitlab_error_log else 0
+            })
+        
+        return {
+            "status": "success",
+            "count": len(email_data),
+            "emails": email_data
+        }
+        
+    except Exception as e:
+        logger.error("Error fetching processed emails", error=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to fetch emails: {str(e)}")

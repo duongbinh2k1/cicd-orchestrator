@@ -9,9 +9,11 @@ from typing import Any, Dict, Optional
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status, Body
 from fastapi.security import HTTPBearer
 from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
 import structlog
 
 from ...core.config import settings
+from ...core.database import get_database_session
 from ...core.exceptions import WebhookValidationError, OrchestrationError
 from ...models.gitlab import GitLabWebhook, GitLabEventType
 from ...models.orchestrator import OrchestrationRequest, OrchestrationResponse
@@ -117,9 +119,11 @@ def verify_gitlab_hmac_signature(payload: bytes, signature: str, secret: str) ->
     return hmac.compare_digest(signature, expected_signature)
 
 
-async def get_orchestration_service() -> OrchestrationService:
+async def get_orchestration_service(
+    db: AsyncSession = Depends(get_database_session)
+) -> OrchestrationService:
     """Get orchestration service dependency."""
-    return OrchestrationService()
+    return OrchestrationService(db)
 
 
 @router.post("/gitlab", 

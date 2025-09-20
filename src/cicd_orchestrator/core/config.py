@@ -17,6 +17,21 @@ class Settings(BaseSettings):
     debug: bool = Field(default=False, env="DEBUG")
     environment: str = Field(default="development", env="ENVIRONMENT")
     
+    # Trigger Mode Configuration
+    trigger_mode: str = Field(
+        default="webhook",
+        env="TRIGGER_MODE",
+        description="How to trigger pipeline analysis: 'webhook' or 'email'"
+    )
+    
+    @validator("trigger_mode")
+    def validate_trigger_mode(cls, v):
+        """Validate trigger mode."""
+        valid_modes = ["webhook", "email", "both"]
+        if v.lower() not in valid_modes:
+            raise ValueError(f"Trigger mode must be one of: {valid_modes}")
+        return v.lower()
+    
     # Server
     host: str = Field(default="0.0.0.0", env="HOST")
     port: int = Field(default=8000, env="PORT")
@@ -66,7 +81,7 @@ class Settings(BaseSettings):
     
     # Database
     database_url: str = Field(
-        default="postgresql+asyncpg://cicd_user:cicd_password@localhost:5432/cicd_orchestrator",
+        default="postgresql+asyncpg://cicd_user:cicd_password@localhost:5432/cicd_orchestrator?create_db_if_not_exists=true",
         env="DATABASE_URL"
     )
     database_echo: bool = Field(default=False, env="DATABASE_ECHO")
@@ -74,6 +89,17 @@ class Settings(BaseSettings):
     # Processing settings
     max_concurrent_analysis: int = Field(default=3, env="MAX_CONCURRENT_ANALYSIS")
     analysis_timeout: int = Field(default=300, env="ANALYSIS_TIMEOUT")
+    
+    # Email Integration
+    imap_enabled: bool = Field(default=False, env="IMAP_ENABLED")
+    imap_server: str = Field(default="imap.gmail.com", env="IMAP_SERVER")
+    imap_port: int = Field(default=993, env="IMAP_PORT")
+    imap_use_ssl: bool = Field(default=True, env="IMAP_USE_SSL")
+    imap_user: str = Field(default="", env="IMAP_USER")
+    imap_app_password: str = Field(default="", env="IMAP_APP_PASSWORD")
+    imap_folder: str = Field(default="INBOX", env="IMAP_FOLDER")
+    imap_check_interval: int = Field(default=60, env="IMAP_CHECK_INTERVAL")  # seconds
+    imap_gitlab_email: str = Field(default="git_nhs@bidv.com.vn", env="IMAP_GITLAB_EMAIL")
     
     @validator("gitlab_api_token", pre=True, always=True)
     def validate_gitlab_token(cls, v):
