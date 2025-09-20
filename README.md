@@ -1,24 +1,28 @@
 # CI/CD Orchestrator
 
-An AI-powered CI/CD error analysis and remediation orchestrator that automatically analyzes failed pipelines and provides intelligent solutions.
+An AI-powered CI/CD error analysis and remediation orchestrator that automatically analyzes failed pipelines and provides intelligent solutions. Supports both **GitLab webhooks** and **email monitoring** for comprehensive pipeline failure detection.
 
 ## Features
 
 - 🔗 **GitLab Integration**: Receives webhooks from GitLab for pipeline and job events
+- 📧 **Email Monitoring**: Monitors IMAP inbox for GitLab pipeline failure notifications
 - 🤖 **AI-Powered Analysis**: Uses OpenAI, Anthropic, and other AI providers to analyze errors
 - 📊 **Comprehensive Reporting**: Provides detailed error analysis with root cause and solutions
 - 🚀 **FastAPI Backend**: Modern, async Python web framework
 - 🐳 **Docker Support**: Containerized deployment with Docker Compose
 - 📈 **Monitoring**: Built-in health checks and logging
 - 🔐 **Security**: Webhook signature verification and secure configuration
+- 🗄️ **Database Management**: Simple CLI-based database setup and management
 
 ## Quick Start
 
 ### Prerequisites
 
 - Python 3.11+
+- PostgreSQL database
 - Docker and Docker Compose (optional)
-- GitLab instance with API access
+- GitLab instance with API access (for webhook mode)
+- Email account with IMAP access (for email mode)
 - OpenAI or Anthropic API key
 
 ### Installation
@@ -55,21 +59,22 @@ cp .env.example .env
 # Edit .env with your configuration
 ```
 
-5. **Run database migrations**
+5. **Set up database**
 ```bash
-alembic upgrade head
+# Create database tables
+python -m src.cicd_orchestrator.cli db-create
+
+# Check database status
+python -m src.cicd_orchestrator.cli db-status
 ```
 
 6. **Start the application**
 ```bash
-# Development with auto-reload
-uvicorn src.cicd_orchestrator.main:app --reload
+# Using CLI (recommended)
+python -m src.cicd_orchestrator.cli serve
 
-# Development with host/port
-uvicorn src.cicd_orchestrator.main:app --host 0.0.0.0 --port 8000 --reload
-
-# Production
-uvicorn src.cicd_orchestrator.main:app --host 0.0.0.0 --port 8000 --workers 4
+# Or using uvicorn directly
+uvicorn src.cicd_orchestrator.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 7. **Verify installation**
@@ -77,10 +82,13 @@ uvicorn src.cicd_orchestrator.main:app --host 0.0.0.0 --port 8000 --workers 4
 # Check health endpoint
 curl http://localhost:8000/health
 
-# Test webhook endpoint
+# Test webhook endpoint (if using webhook mode)
 curl -X POST http://localhost:8000/test/webhook/custom \
   -H "Content-Type: application/json" \
   -d '{"project_id": 1001, "pipeline_status": "failed"}'
+
+# Test email connection (if using email mode)
+python -m src.cicd_orchestrator.cli test-email
 ```
 
 ### Docker Deployment
@@ -97,23 +105,133 @@ docker-compose logs -f app
 
 ## Configuration
 
-### Environment Variables
+### Trigger Modes
+
+The orchestrator supports three trigger modes:
+
+```bash
+# Webhook mode - receive GitLab webhooks directly
+TRIGGER_MODE=webhook
+
+# Email mode - monitor IMAP inbox for failure notifications  
+TRIGGER_MODE=email
+
+# Both modes - support both webhook and email triggers
+TRIGGER_MODE=both
+```
+
+### Core Environment Variables
 
 | Variable | Description | Required | Default |
 |----------|-------------|----------|---------|
 | `SECRET_KEY` | Application secret key | Yes | - |
+| `TRIGGER_MODE` | How to trigger analysis (webhook/email/both) | No | webhook |
+| `DATABASE_URL` | PostgreSQL connection URL | Yes | - |
+| `OPENAI_API_KEY` | OpenAI API key | Yes | - |
+| `OPENAI_BASE_URL` | OpenAI API base URL (for OpenRouter) | No | - |
+| `LOG_LEVEL` | Logging level | No | INFO |
+| `ENVIRONMENT` | Environment (development/production) | No | development |
+
+### GitLab Configuration (for webhook mode)
+
+| Variable | Description | Required | Default |
+|----------|-------------|----------|---------|
 | `GITLAB_API_TOKEN` | GitLab API token | Yes | - |
 | `GITLAB_BASE_URL` | GitLab instance URL | No | https://gitlab.com |
 | `GITLAB_WEBHOOK_SECRET` | Webhook secret for verification | No | - |
 | `GITLAB_AUTO_FETCH_LOGS` | Auto-fetch logs from GitLab API | No | true |
 | `GITLAB_FETCH_FULL_PIPELINE` | Fetch all jobs for context | No | true |
-| `GITLAB_FETCH_TEST_REPORTS` | Fetch test reports | No | true |
-| `GITLAB_MAX_LOG_SIZE_MB` | Max log size to download (MB) | No | 10 |
-| `OPENAI_API_KEY` | OpenAI API key | No | - |
-| `ANTHROPIC_API_KEY` | Anthropic API key | No | - |
-| `DATABASE_URL` | Database connection URL | No | sqlite+aiosqlite:///./cicd_orchestrator.db |
-| `LOG_LEVEL` | Logging level | No | INFO |
-| `ENVIRONMENT` | Environment (development/production) | No | development |
+| `GITLAB_LOG_LINES_LIMIT` | Max log lines to fetch | No | 2000 |
+
+### Email Configuration (for email mode)
+
+| Variable | Description | Required | Default |
+|----------|-------------|----------|---------|
+| `IMAP_ENABLED` | Enable email monitoring | No | false |
+| `IMAP_SERVER` | IMAP server hostname | Yes* | imap.gmail.com |
+| `IMAP_PORT` | IMAP server port | No | 993 |
+| `IMAP_USE_SSL` | Use SSL for IMAP connection | No | true |
+| `IMAP_USER` | IMAP username/email | Yes* | - |
+| `IMAP_APP_PASSWORD` | IMAP password/app password | Yes* | - |
+| `IMAP_FOLDER` | Email folder to monitor | No | INBOX |
+| `IMAP_CHECK_INTERVAL` | Check interval in seconds | No | 60 |
+| `IMAP_GITLAB_EMAIL` | Expected GitLab sender email | Yes* | - |
+
+*Required when `TRIGGER_MODE=email` or `TRIGGER_MODE=both`
+
+### Email Setup for GitLab Integration
+
+1. **Configure GitLab to send failure notifications**
+   - Go to Project → Settings → Integrations → Emails on push
+   - Enable "Send from committer" 
+   - Add your monitoring email address
+   - Enable for "Failed pipelines" only
+
+2. **Set up email account**
+   ```bash
+   # Gmail example
+   IMAP_SERVER=imap.gmail.com
+   IMAP_USER=your-email@gmail.com
+   IMAP_APP_PASSWORD=your-app-password  # Not regular password!
+   IMAP_GITLAB_EMAIL=noreply@gitlab.com  # Or your GitLab instance email
+   ```
+
+3. **Gmail App Password Setup**
+   - Enable 2-factor authentication
+   - Generate app password for the application
+   - Use app password, not regular password
+
+## Database Management
+
+The orchestrator includes a simple CLI-based database management system:
+
+```bash
+# Check database status and existing tables
+python -m src.cicd_orchestrator.cli db-status
+
+# Create all required tables
+python -m src.cicd_orchestrator.cli db-create
+
+# Drop all tables (WARNING: deletes all data!)
+python -m src.cicd_orchestrator.cli db-drop
+
+# Recreate all tables (WARNING: deletes all data!)
+python -m src.cicd_orchestrator.cli db-recreate
+
+# Show current configuration
+python -m src.cicd_orchestrator.cli config
+
+# Test email connection
+python -m src.cicd_orchestrator.cli test-email
+```
+
+### Adding New Tables
+
+To add new database tables:
+
+1. **Create model** in `src/cicd_orchestrator/models/`
+2. **Add table creation function** in `src/cicd_orchestrator/core/database_setup.py`
+3. **Update `create_all_tables()`** to include your new table
+4. **Update `drop_all_tables()`** to include drop statement
+5. **Run** `python -m src.cicd_orchestrator.cli db-recreate`
+
+Example:
+```python
+# In database_setup.py
+async def create_my_new_table(conn) -> None:
+    create_table_sql = """
+    CREATE TABLE IF NOT EXISTS my_new_table (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    """
+    await conn.execute(text(create_table_sql))
+    logger.info("Created my_new_table")
+
+# Add to create_all_tables()
+await create_my_new_table(conn)
+```
 
 ### GitLab Data Fetching Strategy
 
@@ -145,7 +263,7 @@ GITLAB_MAX_LOG_SIZE_MB=10
 GITLAB_LOG_CONTEXT_LINES=50
 ```
 
-### GitLab Webhook Setup
+### GitLab Webhook Setup (for webhook mode)
 
 1. **Go to your GitLab project settings**
    - Project → Settings → Webhooks
@@ -161,6 +279,44 @@ GITLAB_LOG_CONTEXT_LINES=50
 
 4. **Configure secret token** (optional but recommended)
    - Set `GITLAB_WEBHOOK_SECRET` environment variable
+
+### Email Monitoring Setup (for email mode)
+
+The email monitoring system processes GitLab pipeline failure notifications sent to an IMAP inbox:
+
+#### How it works:
+```
+GitLab Pipeline Fails → GitLab sends email → IMAP inbox → Orchestrator monitors → AI Analysis
+```
+
+#### Setup process:
+
+1. **Configure GitLab email notifications**
+   - Project → Settings → Integrations → Emails on push
+   - Add your monitoring email address
+   - Configure to send only for failed pipelines
+
+2. **Set up IMAP monitoring**
+   ```bash
+   IMAP_ENABLED=true
+   IMAP_SERVER=imap.gmail.com
+   IMAP_USER=monitoring@yourcompany.com
+   IMAP_APP_PASSWORD=your-app-password
+   IMAP_GITLAB_EMAIL=noreply@gitlab.yourcompany.com
+   IMAP_CHECK_INTERVAL=60  # Check every 60 seconds
+   ```
+
+3. **Email processing features**
+   - ✅ Automatic duplicate detection (avoids reprocessing same failures)
+   - ✅ GitLab header extraction (project ID, pipeline ID, etc.)
+   - ✅ Failure keyword filtering (only processes actual failures)
+   - ✅ Full integration with GitLab API (fetches logs and context)
+   - ✅ Database tracking of processed emails
+
+#### Supported email providers:
+- **Gmail**: Use app passwords (not regular password)
+- **Outlook/Office365**: Use app passwords or OAuth
+- **Custom IMAP servers**: Standard IMAP over SSL
 
 ## API Documentation
 
@@ -255,6 +411,33 @@ export DEFAULT_AI_PROVIDER="azure_openai"
 
 ## Architecture
 
+### Flexible Trigger System
+```
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│     GitLab      │───▶│  CI/CD Orchestr │───▶│   AI Provider   │
+│   (Webhooks)    │    │      ator       │    │  (OpenAI/etc)   │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+        │                        │                        │
+┌─────────────────┐              │                        │
+│     GitLab      │              ▼                        │
+│   (Email        │───▶┌─────────────────┐                │
+│   Notifications)│    │    Database     │                │
+└─────────────────┘    │   (PostgreSQL)  │                │
+                       └─────────────────┘                │
+                                 │                        │
+                                 ▼                        │
+                       ┌─────────────────┐                │
+                       │   Results       │◀───────────────┘
+                       │   Storage       │
+                       └─────────────────┘
+```
+
+### Email Processing Flow
+```
+IMAP Monitor → Email Validation → GitLab Header Extraction → Database Storage → AI Analysis
+    (60s)         (failure only)         (project/pipeline)        (dedup)        (same as webhook)
+```
+
 ### Enhanced Webhook Processing Flow
 ```
 GitLab Webhook → FastAPI Handler → Async Background Task → GitLab Fetch → AI Analysis → Results
@@ -263,33 +446,16 @@ GitLab Webhook → FastAPI Handler → Async Background Task → GitLab Fetch �
                    (normalization)   (retry logic)        (artifacts)     (prevention)
 ```
 
-```
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│     GitLab      │───▶│  CI/CD Orchestr │───▶│   AI Provider   │
-│   (Webhooks)    │    │      ator       │    │  (OpenAI/etc)   │
-└─────────────────┘    └─────────────────┘    └─────────────────┘
-        │                        │                        │
-        │                        ▼                        │
-        │              ┌─────────────────┐                │
-        │              │    Database     │                │
-        │              │   (PostgreSQL)  │                │
-        │              └─────────────────┘                │
-        │                        │                        │
-        │                        ▼                        │
-        │              ┌─────────────────┐                │
-        └──────────────│   Results       │◀───────────────┘
-                       │   Storage       │
-                       └─────────────────┘
-```
-
 ### Key Benefits:
+- **Multiple Trigger Sources**: Support both webhooks and email monitoring
 - **Fast Webhook Response**: Returns in < 100ms, preventing GitLab timeouts
+- **Robust Email Processing**: Duplicate detection, header parsing, failure filtering
+- **Unified Analysis Pipeline**: Both triggers use the same AI analysis workflow
 - **Robust Async Processing**: Properly handled async background tasks with error recovery
 - **Smart GitLab Integration**: Intelligent fetching strategy for logs and context
 - **Enhanced Error Handling**: Comprehensive error catching and logging at all levels
 - **Advanced AI Analysis**: Context-aware prompts with multiple AI provider support
-- **Temporary Results Storage**: In-memory results cache with configurable retention
-- **Webhook Testing Support**: Built-in endpoints for testing and validation
+- **Database Tracking**: Full audit trail of processed webhooks and emails
 ```
 
 ### Data Fetching Flow
@@ -375,12 +541,20 @@ mypy .
 cicd-orchestrator/
 ├── src/cicd_orchestrator/
 │   ├── api/                  # FastAPI routes and dependencies
-│   ├── core/                 # Configuration, logging, exceptions
+│   ├── core/                 # Configuration, logging, exceptions, database
+│   │   ├── database.py       # Database connection management
+│   │   ├── database_setup.py # Table creation and management
+│   │   └── config.py         # Settings and environment variables
 │   ├── models/               # Pydantic models
+│   │   ├── email.py          # Email processing models
+│   │   ├── gitlab.py         # GitLab webhook and API models
+│   │   └── orchestrator.py   # Orchestration workflow models
 │   ├── services/             # Business logic services & external clients
-│   │   ├── orchestration_service.py  # Main business logic
+│   │   ├── orchestration_service.py  # Main business logic + email monitoring
+│   │   ├── email_service.py          # Email processing utilities
 │   │   ├── ai_service.py             # AI providers (OpenAI, Anthropic)
 │   │   └── gitlab_client.py          # GitLab API client
+│   ├── prompts/              # AI prompt templates and builders
 │   └── utils/                # Utility functions
 ├── tests/                    # Test suite
 ├── deployment/               # Docker and deployment files
@@ -392,6 +566,12 @@ cicd-orchestrator/
 - **`*_service.py`**: Business logic layer, orchestrates multiple components
 - **`*_client.py`**: External API integration layer (GitLab, databases, etc.)
 - **`*_provider.py`**: Specific implementation of clients (OpenAI provider, Anthropic provider)
+
+**Key Files:**
+- **`orchestration_service.py`**: Handles both webhook and email triggers
+- **`email_service.py`**: Email parsing, validation, and GitLab header extraction
+- **`database_setup.py`**: Simple SQL-based table management (replaces Alembic)
+- **`cli.py`**: Command-line interface for database and system management
 
 ## Monitoring and Logging
 
