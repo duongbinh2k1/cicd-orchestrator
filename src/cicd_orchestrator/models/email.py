@@ -22,17 +22,16 @@ class ProcessedEmail(Base):
     message_uid = Column(String, unique=True, nullable=False)
     message_id = Column(String, unique=True, nullable=True)  # Email Message-ID header
     received_at = Column(DateTime, nullable=False)  # Email received timestamp without timezone
-    processed_at = Column(DateTime, default=_utcnow)  # UTC time without timezone
     from_email = Column(String, nullable=False)
     subject = Column(String)
     
     # GitLab project information
-    project_id = Column(String)
+    project_id = Column(String)  # Keep as String for flexibility
     project_name = Column(String)  # X-GitLab-Project
     project_path = Column(String)  # X-GitLab-Project-Path
     
     # GitLab pipeline information
-    pipeline_id = Column(String)
+    pipeline_id = Column(String)  # Keep as String for flexibility
     pipeline_ref = Column(String)  # X-GitLab-Pipeline-Ref (branch/tag)
     pipeline_status = Column(String)
     
@@ -40,6 +39,10 @@ class ProcessedEmail(Base):
     status = Column(String)  # pending, fetched, fetching_gitlab_data, processing_pipeline, completed, no_gitlab_headers, error
     error_message = Column(Text, nullable=True)  # Có thể chứa HTML content lớn
     gitlab_error_log = Column(Text, nullable=True)  # GitLab job logs for failed pipelines
+    
+    # Timestamps (to match Oracle table)
+    created_at = Column(DateTime, default=_utcnow)
+    updated_at = Column(DateTime, default=_utcnow, onupdate=_utcnow)
     
     def __repr__(self):
         return f"<ProcessedEmail(uid={self.message_uid}, pipeline={self.pipeline_id})>"

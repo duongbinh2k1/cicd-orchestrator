@@ -90,7 +90,7 @@ class Settings(BaseSettings):
     
     # Database
     database_url: str = Field(
-        default="postgresql+asyncpg://cicd_user:cicd_password@localhost:5432/cicd_orchestrator?create_db_if_not_exists=true",
+        default="oracle+oracledb://username:password@localhost:1521/?service_name=database",
         env="DATABASE_URL"
     )
     database_echo: bool = Field(default=False, env="DATABASE_ECHO")
@@ -109,6 +109,15 @@ class Settings(BaseSettings):
     imap_folder: str = Field(default="INBOX", env="IMAP_FOLDER")
     imap_check_interval: int = Field(default=60, env="IMAP_CHECK_INTERVAL")  # seconds
     imap_gitlab_email: str = Field(default="git_nhs@bidv.com.vn", env="IMAP_GITLAB_EMAIL")
+    
+    # IMAP Proxy Configuration
+    imap_proxy_enabled: bool = Field(default=False, env="IMAP_PROXY_ENABLED")
+    imap_proxy_host: str = Field(default="", env="IMAP_PROXY_HOST")
+    imap_proxy_port: int = Field(default=8080, env="IMAP_PROXY_PORT")
+    imap_proxy_username: str = Field(default="", env="IMAP_PROXY_USERNAME")
+    imap_proxy_password: str = Field(default="", env="IMAP_PROXY_PASSWORD")
+    imap_proxy_type: str = Field(default="socks5", env="IMAP_PROXY_TYPE")  # socks5, socks4, http
+    
     email_failure_keywords: str = Field(
         default="failed,failure,error,exception,job failed,pipeline failed,build failed", 
         env="EMAIL_FAILURE_KEYWORDS"

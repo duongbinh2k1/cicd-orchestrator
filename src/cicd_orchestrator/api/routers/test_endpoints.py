@@ -13,7 +13,7 @@ from ...models.gitlab import GitLabWebhook, GitLabJobStatus
 from ...models.orchestrator import OrchestrationRequest  
 from ...models.email import ProcessedEmail
 from ...services.orchestration_service import OrchestrationService
-from ...services.gitlab_client import GitLabClient
+from ...services.gitlab import GitLabClient
 from ...core.database import get_database_session
 from ...utils.mock_data import mock_loader
 
@@ -520,7 +520,7 @@ async def get_processed_emails(
         
         result = await db.execute(
             select(ProcessedEmail)
-            .order_by(desc(ProcessedEmail.processed_at))
+            .order_by(desc(ProcessedEmail.id))  # Use id for ordering instead
             .limit(limit)
         )
         emails = result.scalars().all()
@@ -534,7 +534,6 @@ async def get_processed_emails(
                 "pipeline_id": email.pipeline_id,
                 "pipeline_status": email.pipeline_status,
                 "status": email.status,
-                "processed_at": email.processed_at,
                 "has_gitlab_logs": bool(email.gitlab_error_log),
                 "gitlab_log_size": len(email.gitlab_error_log) if email.gitlab_error_log else 0
             })
@@ -548,3 +547,192 @@ async def get_processed_emails(
     except Exception as e:
         logger.error("Error fetching processed emails", error=str(e))
         raise HTTPException(status_code=500, detail=f"Failed to fetch emails: {str(e)}")
+
+
+@router.get("/gitlab/connection")
+async def test_gitlab_connection():
+    """🔗 Test GitLab API connection and fetch sample data."""
+    from ...core.config import settings
+    
+    try:
+        logger.info("Testing GitLab connection", url=settings.gitlab_base_url)
+        
+        async with GitLabClient(
+            base_url=settings.gitlab_base_url,
+            api_token=settings.gitlab_api_token,
+            timeout=settings.gitlab_api_timeout,
+        ) as gitlab_client:
+            
+            # Test basic connection
+            health_check = await gitlab_client.health_check()
+            
+            result = {
+                "status": "success" if health_check else "failed",
+                "gitlab_url": settings.gitlab_base_url,
+                "health_check": health_check,
+                "timestamp": datetime.utcnow().isoformat(),
+            }
+            
+            if health_check:
+                try:
+                    # Try to fetch some projects
+                    projects = await gitlab_client.search_projects("", per_page=5)
+                    result["sample_projects"] = [
+                        {
+                            "id": p.id,
+                            "name": p.name,
+                            "path": p.path,
+                            "namespace": p.namespace.name if p.namespace else None
+                        }
+                        for p in projects[:3]
+                    ]
+                except Exception as e:
+                    result["projects_error"] = str(e)
+            
+            return result
+            
+    except Exception as e:
+        logger.error("GitLab connection test failed", error=str(e))
+        return {
+            "status": "error",
+            "gitlab_url": settings.gitlab_base_url,
+            "error": str(e),
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+
+@router.get("/gitlab/project/{project_id}")
+async def test_gitlab_project_data(project_id: str):
+    """📊 Test fetching specific project data from GitLab."""
+    from ...core.config import settings
+    
+    try:
+        logger.info("Testing GitLab project data fetch", project_id=project_id)
+        
+        async with GitLabClient(
+            base_url=settings.gitlab_base_url,
+            api_token=settings.gitlab_api_token,
+            timeout=settings.gitlab_api_timeout,
+        ) as gitlab_client:
+            
+            # Fetch project info
+            project = await gitlab_client.get_project(project_id)
+            project_info = await gitlab_client.get_project_info(project_id)
+            
+            # Try to get recent pipelines (this might fail if no pipelines)
+            pipelines = []
+            try:
+                # This method doesn't exist yet, we'll need to add it or use different approach
+                pass
+            except:
+                pass
+            
+            result = {
+                "status": "success",
+                "project": {
+                    "id": project.id,
+                    "name": project.name,
+                    "path": project.path,
+                    "description": project.description,
+                    "default_branch": project.default_branch,
+                    "web_url": project.web_url,
+                },
+                "project_info": {
+                    "latest_pipeline": {
+                        "id": project_info.latest_pipeline.id if project_info.latest_pipeline else None,
+                        "status": project_info.latest_pipeline.status if project_info.latest_pipeline else None,
+                        "ref": project_info.latest_pipeline.ref if project_info.latest_pipeline else None,
+                    } if project_info.latest_pipeline else None,
+                    "repository_size": project_info.repository_size,
+                    "commit_count": project_info.commit_count,
+                },
+                "timestamp": datetime.utcnow().isoformat(),
+            }
+            
+            return result
+            
+    except Exception as e:
+        logger.error("GitLab project data test failed", project_id=project_id, error=str(e))
+        return {
+            "status": "error",
+            "project_id": project_id,
+            "error": str(e),
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+
+@router.get("/gitlab/pipeline/{project_id}/{pipeline_id}")
+async def test_gitlab_pipeline_data(project_id: str, pipeline_id: int):
+    """🔍 Test fetching specific pipeline data and logs from GitLab."""
+    from ...core.config import settings
+    
+    try:
+        logger.info("Testing GitLab pipeline data fetch", project_id=project_id, pipeline_id=pipeline_id)
+        
+        async with GitLabClient(
+            base_url=settings.gitlab_base_url,
+            api_token=settings.gitlab_api_token,
+            timeout=settings.gitlab_api_timeout,
+        ) as gitlab_client:
+            
+            # Fetch pipeline info
+            pipeline = await gitlab_client.get_pipeline(project_id, pipeline_id)
+            
+            # Fetch pipeline jobs
+            all_jobs = await gitlab_client.get_pipeline_jobs(project_id, pipeline_id)
+            failed_jobs = await gitlab_client.get_failed_jobs(project_id, pipeline_id)
+            
+            # Fetch logs for failed jobs
+            job_logs = []
+            for job in failed_jobs[:2]:  # Limit to first 2 failed jobs
+                try:
+                    job_log = await gitlab_client.get_job_log(
+                        project_id, 
+                        job.id, 
+                        max_size_mb=5, 
+                        context_lines=20
+                    )
+                    job_logs.append({
+                        "job_id": job_log.job_id,
+                        "job_name": job_log.job_name,
+                        "stage": job_log.stage,
+                        "status": job_log.status,
+                        "log_preview": job_log.log_content[:500] + "..." if len(job_log.log_content) > 500 else job_log.log_content,
+                        "log_size": len(job_log.log_content),
+                    })
+                except Exception as e:
+                    job_logs.append({
+                        "job_id": job.id,
+                        "job_name": job.name,
+                        "error": str(e)
+                    })
+            
+            result = {
+                "status": "success",
+                "pipeline": {
+                    "id": pipeline.id,
+                    "status": pipeline.status,
+                    "ref": pipeline.ref,
+                    "created_at": pipeline.created_at.isoformat() if pipeline.created_at else None,
+                    "updated_at": pipeline.updated_at.isoformat() if pipeline.updated_at else None,
+                },
+                "jobs_summary": {
+                    "total_jobs": len(all_jobs),
+                    "failed_jobs": len(failed_jobs),
+                    "job_statuses": {job.status: len([j for j in all_jobs if j.status == job.status]) for job in all_jobs}
+                },
+                "failed_job_logs": job_logs,
+                "timestamp": datetime.utcnow().isoformat(),
+            }
+            
+            return result
+            
+    except Exception as e:
+        logger.error("GitLab pipeline data test failed", project_id=project_id, pipeline_id=pipeline_id, error=str(e))
+        return {
+            "status": "error",
+            "project_id": project_id,
+            "pipeline_id": pipeline_id,
+            "error": str(e),
+            "timestamp": datetime.utcnow().isoformat(),
+        }

@@ -183,13 +183,21 @@ def db_status():
                 from sqlalchemy import text
                 
                 async with db_manager.engine.begin() as conn:
-                    # Check which tables exist
-                    result = await conn.execute(text("""
-                        SELECT table_name 
-                        FROM information_schema.tables 
-                        WHERE table_schema = 'public'
-                        ORDER BY table_name;
-                    """))
+                    # Check which tables exist - Oracle version
+                    if "oracle" in db_manager._get_db_type():
+                        result = await conn.execute(text("""
+                            SELECT table_name 
+                            FROM user_tables 
+                            ORDER BY table_name
+                        """))
+                    else:
+                        # PostgreSQL/SQLite fallback
+                        result = await conn.execute(text("""
+                            SELECT table_name 
+                            FROM information_schema.tables 
+                            WHERE table_schema = 'public'
+                            ORDER BY table_name
+                        """))
                     tables = [row[0] for row in result.fetchall()]
                 
                 table = Table(title="Database Status")

@@ -72,8 +72,12 @@ class DatabaseManager:
             raise RuntimeError("Database engine not initialized")
             
         async with self.engine.begin() as conn:
-            # Simple test query
-            result = await conn.execute(text("SELECT 1"))
+            # Test query - Oracle specific
+            if "oracle" in settings.database_url.lower():
+                result = await conn.execute(text("SELECT 1 FROM DUAL"))
+            else:
+                # PostgreSQL/SQLite fallback
+                result = await conn.execute(text("SELECT 1"))
             # fetchone() is not awaitable in SQLAlchemy 2.0
             row = result.fetchone()
             
@@ -83,6 +87,8 @@ class DatabaseManager:
         """Get database type from URL."""
         if "postgresql" in settings.database_url:
             return "postgresql"
+        elif "oracle" in settings.database_url:
+            return "oracle"
         elif "sqlite" in settings.database_url:
             return "sqlite"
         else:
@@ -107,8 +113,7 @@ class DatabaseManager:
             except Exception:
                 await session.rollback()
                 raise
-            finally:
-                await session.close()
+            # No need for finally close() - async with handles it
     
     async def close(self):
         """Close database connections."""
@@ -137,6 +142,7 @@ class DatabaseManager:
 db_manager = DatabaseManager()
 
 
+@asynccontextmanager
 async def get_database_session():
     """Dependency to get database session."""
     if not db_manager.is_connected:
@@ -181,7 +187,12 @@ async def check_database_health() -> dict:
     
     try:
         async with db_manager.get_session() as session:
-            await session.execute(text("SELECT 1"))
+            # Oracle specific health check query
+            if "oracle" in settings.database_url.lower():
+                await session.execute(text("SELECT 1 FROM DUAL"))
+            else:
+                # PostgreSQL/SQLite fallback
+                await session.execute(text("SELECT 1"))
             
         return {
             "status": "healthy",

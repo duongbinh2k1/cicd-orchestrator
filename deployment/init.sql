@@ -1,19 +1,18 @@
--- Initialize database for CI/CD Orchestrator
+-- Initialize database for CI/CD Orchestrator (Oracle version)
+-- This file is for reference only since we're using external Oracle DB
 
--- Create extensions
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+-- Set session timezone (Oracle syntax)
+-- ALTER SESSION SET TIME_ZONE = 'UTC';
 
--- Set timezone
-SET timezone = 'UTC';
+-- Create user and grant permissions (if needed)
+-- Note: Assuming user 'svs' already exists with proper permissions
 
--- Create schemas
-CREATE SCHEMA IF NOT EXISTS cicd;
+-- Grant necessary privileges to svs user
+-- GRANT CREATE TABLE, CREATE SEQUENCE, CREATE INDEX TO svs;
+-- GRANT CREATE SESSION TO svs;
+-- GRANT UNLIMITED TABLESPACE TO svs;
 
--- Grant permissions
-GRANT ALL PRIVILEGES ON SCHEMA cicd TO cicd_user;
-GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA cicd TO cicd_user;
-GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA cicd TO cicd_user;
-
--- Default permissions for future tables
-ALTER DEFAULT PRIVILEGES IN SCHEMA cicd GRANT ALL PRIVILEGES ON TABLES TO cicd_user;
-ALTER DEFAULT PRIVILEGES IN SCHEMA cicd GRANT ALL PRIVILEGES ON SEQUENCES TO cicd_user;
+-- Example of creating tablespace (if needed)
+-- CREATE TABLESPACE cicd_data
+-- DATAFILE 'cicd_data.dbf' SIZE 100M
+-- AUTOEXTEND ON NEXT 10M MAXSIZE 1G;
