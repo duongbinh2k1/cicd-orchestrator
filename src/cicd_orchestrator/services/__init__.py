@@ -12,7 +12,7 @@ Naming convention:
 - *_provider.py: Specific implementations within services
 """
 
-from .gitlab_client import GitLabClient, GitLabAPIError
+from .gitlab import GitLabClient, GitLabAPIError
 from .email import EmailUtils
 
 __all__ = ["GitLabClient", "GitLabAPIError", "EmailUtils"]

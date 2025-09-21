@@ -37,8 +37,7 @@ async def lifespan(app: FastAPI):
         logger.warning("Application starting without database connection")
         
     # Initialize orchestration service as the main brain
-    db = await anext(get_database_session())
-    orchestration_service = OrchestrationService(db)
+    orchestration_service = OrchestrationService()
     
     # Start email monitoring if configured - orchestrator controls this
     if settings.trigger_mode in ["email", "both"] and settings.imap_enabled:

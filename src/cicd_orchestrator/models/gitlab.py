@@ -51,13 +51,23 @@ class GitLabUser(BaseModel):
     avatar_url: Optional[HttpUrl] = None
 
 
+class GitLabNamespace(BaseModel):
+    """GitLab namespace model."""
+    id: int
+    name: str
+    path: str
+    kind: str
+    full_path: str
+    web_url: Optional[HttpUrl] = None
+
+
 class GitLabProject(BaseModel):
     """GitLab project model."""
     id: int
     name: str
     description: Optional[str] = None
     web_url: HttpUrl
-    namespace: str
+    namespace: GitLabNamespace
     path_with_namespace: str
     default_branch: str = "main"
     ssh_url_to_repo: Optional[str] = None
@@ -87,8 +97,9 @@ class GitLabJob(BaseModel):
     runner: Optional[Dict[str, Any]] = None
     artifacts_file: Optional[Dict[str, Any]] = None
     failure_reason: Optional[str] = None
-    web_url: HttpUrl
-    project: GitLabProject
+    web_url: Optional[HttpUrl] = None
+    # Project can be either full object or partial data from GitLab API
+    project: Optional[Dict[str, Any]] = None
     pipeline: Optional["GitLabPipeline"] = None
 
 
@@ -100,17 +111,17 @@ class GitLabPipeline(BaseModel):
     source: str
     ref: str
     sha: str
-    before_sha: str
+    before_sha: Optional[str] = None
     created_at: datetime
     updated_at: datetime
     started_at: Optional[datetime] = None
     finished_at: Optional[datetime] = None
     duration: Optional[int] = None
-    user: GitLabUser
-    project: GitLabProject
-    commit: GitLabCommit
+    user: Optional[GitLabUser] = None
+    project: Optional[GitLabProject] = None
+    commit: Optional[GitLabCommit] = None
     detailed_status: Optional[Dict[str, Any]] = None
-    web_url: HttpUrl
+    web_url: Optional[HttpUrl] = None
 
 
 class GitLabWebhookObjectAttributes(BaseModel):

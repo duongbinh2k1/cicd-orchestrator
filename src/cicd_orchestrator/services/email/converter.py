@@ -19,7 +19,8 @@ from ...models.gitlab import (
     GitLabEventType, 
     GitLabWebhookObjectAttributes, 
     GitLabProject, 
-    GitLabUser
+    GitLabUser,
+    GitLabNamespace
 )
 
 logger = structlog.get_logger(__name__)
@@ -54,7 +55,13 @@ class GitLabWebhookConverter:
                     id=int(gitlab_headers["project_id"]),
                     name=gitlab_headers.get("project_name") or f"Project-{gitlab_headers['project_id']}",
                     web_url=GitLabWebhookConverter._build_project_web_url(gitlab_headers),
-                    namespace="email-source",
+                    namespace=GitLabNamespace(
+                        id=0,
+                        name="email-source",
+                        path="email-source",
+                        kind="group",
+                        full_path="email-source"
+                    ),
                     path_with_namespace=gitlab_headers.get("project_path") or f"email-source/project-{gitlab_headers['project_id']}",
                     default_branch="main"
                 ),

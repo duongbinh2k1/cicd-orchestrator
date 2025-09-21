@@ -113,8 +113,7 @@ class DatabaseManager:
             except Exception:
                 await session.rollback()
                 raise
-            finally:
-                await session.close()
+            # No need for finally close() - async with handles it
     
     async def close(self):
         """Close database connections."""
@@ -143,6 +142,7 @@ class DatabaseManager:
 db_manager = DatabaseManager()
 
 
+@asynccontextmanager
 async def get_database_session():
     """Dependency to get database session."""
     if not db_manager.is_connected:
