@@ -520,7 +520,7 @@ async def get_processed_emails(
         
         result = await db.execute(
             select(ProcessedEmail)
-            .order_by(desc(ProcessedEmail.processed_at))
+            .order_by(desc(ProcessedEmail.id))  # Use id for ordering instead
             .limit(limit)
         )
         emails = result.scalars().all()
@@ -534,7 +534,6 @@ async def get_processed_emails(
                 "pipeline_id": email.pipeline_id,
                 "pipeline_status": email.pipeline_status,
                 "status": email.status,
-                "processed_at": email.processed_at,
                 "has_gitlab_logs": bool(email.gitlab_error_log),
                 "gitlab_log_size": len(email.gitlab_error_log) if email.gitlab_error_log else 0
             })

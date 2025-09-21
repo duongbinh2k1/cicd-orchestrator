@@ -34,54 +34,69 @@ async def create_processed_emails_table(conn) -> None:
     """Create the processed_emails table."""
     
     create_table_sql = """
-    CREATE TABLE IF NOT EXISTS processed_emails (
-        id SERIAL PRIMARY KEY,
-        message_uid VARCHAR(255) NOT NULL,
-        message_id VARCHAR(500),
-        received_at TIMESTAMP WITHOUT TIME ZONE NOT NULL,
-        from_email VARCHAR(255) NOT NULL,
-        subject TEXT NOT NULL,
-        status VARCHAR(50) NOT NULL DEFAULT 'pending',
+    CREATE TABLE processed_emails (
+        id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        message_uid VARCHAR2(255) NOT NULL,
+        message_id VARCHAR2(500),
+        received_at TIMESTAMP NOT NULL,
+        from_email VARCHAR2(255) NOT NULL,
+        subject CLOB NOT NULL,
+        status VARCHAR2(50) DEFAULT 'pending' NOT NULL,
         
         -- GitLab specific fields
-        project_id INTEGER,
-        project_name VARCHAR(255),
-        project_path VARCHAR(500),
-        pipeline_id INTEGER,
-        pipeline_ref VARCHAR(255),
-        pipeline_status VARCHAR(50),
+        project_id VARCHAR2(50),
+        project_name VARCHAR2(255),
+        project_path VARCHAR2(500),
+        pipeline_id VARCHAR2(50),
+        pipeline_ref VARCHAR2(255),
+        pipeline_status VARCHAR2(50),
         
         -- Error and analysis data
-        error_message TEXT,
-        gitlab_error_log TEXT,
+        error_message CLOB,
+        gitlab_error_log CLOB,
         
         -- Timestamps
-        created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        created_at TIMESTAMP DEFAULT SYSTIMESTAMP,
+        updated_at TIMESTAMP DEFAULT SYSTIMESTAMP,
         
-        -- Indexes for performance
-        UNIQUE(message_uid),
-        UNIQUE(message_id)
-    );
+        -- Constraints
+        CONSTRAINT uk_processed_emails_uid UNIQUE(message_uid),
+        CONSTRAINT uk_processed_emails_mid UNIQUE(message_id)
+    )
     """
     
     # Create indexes
     create_indexes_sql = [
-        "CREATE INDEX IF NOT EXISTS idx_processed_emails_status ON processed_emails(status);",
-        "CREATE INDEX IF NOT EXISTS idx_processed_emails_project_id ON processed_emails(project_id);",
-        "CREATE INDEX IF NOT EXISTS idx_processed_emails_pipeline_id ON processed_emails(pipeline_id);",
-        "CREATE INDEX IF NOT EXISTS idx_processed_emails_received_at ON processed_emails(received_at);",
-        "CREATE INDEX IF NOT EXISTS idx_processed_emails_from_email ON processed_emails(from_email);"
+        "CREATE INDEX idx_processed_emails_status ON processed_emails(status)",
+        "CREATE INDEX idx_processed_emails_project_id ON processed_emails(project_id)",
+        "CREATE INDEX idx_processed_emails_pipeline_id ON processed_emails(pipeline_id)",
+        "CREATE INDEX idx_processed_emails_received_at ON processed_emails(received_at)",
+        "CREATE INDEX idx_processed_emails_from_email ON processed_emails(from_email)"
     ]
     
     try:
-        # Create table
-        await conn.execute(text(create_table_sql))
-        logger.info("Created processed_emails table")
+        # Create table (Oracle doesn't support IF NOT EXISTS, so we handle exceptions)
+        try:
+            await conn.execute(text(create_table_sql))
+            logger.info("Created processed_emails table")
+        except Exception as table_error:
+            # Check if table already exists
+            if "already exists" in str(table_error).lower() or "ora-00955" in str(table_error).lower():
+                logger.info("Table processed_emails already exists")
+            else:
+                raise table_error
         
         # Create indexes
         for index_sql in create_indexes_sql:
-            await conn.execute(text(index_sql))
+            try:
+                await conn.execute(text(index_sql))
+            except Exception as index_error:
+                # Ignore if index already exists
+                if "already exists" in str(index_error).lower() or "ora-00955" in str(index_error).lower():
+                    continue
+                else:
+                    logger.warning(f"Failed to create index: {index_error}")
+        
         logger.info("Created indexes for processed_emails table")
         
     except Exception as e:
@@ -101,7 +116,7 @@ async def drop_all_tables(engine: AsyncEngine) -> None:
     async with engine.begin() as conn:
         try:
             # Drop tables in reverse dependency order
-            await conn.execute(text("DROP TABLE IF EXISTS processed_emails CASCADE;"))
+            await conn.execute(text("DROP TABLE processed_emails CASCADE CONSTRAINTS"))
             
             logger.warning("All database tables dropped")
             
@@ -138,12 +153,12 @@ async def create_example_new_table(conn) -> None:
     """
     
     create_table_sql = """
-    CREATE TABLE IF NOT EXISTS example_table (
-        id SERIAL PRIMARY KEY,
-        name VARCHAR(255) NOT NULL,
-        description TEXT,
-        created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP
-    );
+    CREATE TABLE example_table (
+        id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        name VARCHAR2(255) NOT NULL,
+        description CLOB,
+        created_at TIMESTAMP DEFAULT SYSTIMESTAMP
+    )
     """
     
     try:

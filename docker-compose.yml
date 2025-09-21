@@ -29,8 +29,8 @@ services:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - DEFAULT_AI_PROVIDER=${DEFAULT_AI_PROVIDER:-openai}
       
-      # Database (PostgreSQL)
-      - DATABASE_URL=postgresql+asyncpg://cicd_user:cicd_password@postgres:5432/cicd_orchestrator
+      # Database (Oracle)
+      - DATABASE_URL=${DATABASE_URL}
       
       # Logging
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
@@ -38,8 +38,9 @@ services:
       
       # Monitoring
       - SENTRY_DSN=${SENTRY_DSN}
-    depends_on:
-      - postgres
+    # Removed postgres dependency since using external Oracle DB
+    # depends_on:
+    #   - postgres
     volumes:
       - ./logs:/app/logs
       - ./data:/app/data
@@ -49,28 +50,6 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
-    networks:
-      - cicd-network
-
-  # PostgreSQL database (optional, for production)
-  postgres:
-    image: postgres:15-alpine
-    container_name: cicd-postgres
-    restart: unless-stopped
-    environment:
-      - POSTGRES_DB=cicd_orchestrator
-      - POSTGRES_USER=cicd_user
-      - POSTGRES_PASSWORD=cicd_password
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./deployment/init.sql:/docker-entrypoint-initdb.d/init.sql
-    ports:
-      - "5432:5432"
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U cicd_user -d cicd_orchestrator"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
     networks:
       - cicd-network
 
@@ -92,10 +71,10 @@ services:
     profiles:
       - nginx
 
-# Define volumes
-volumes:
-  postgres_data:
-    driver: local
+# Define volumes (postgres_data commented out since using external Oracle DB)
+# volumes:
+#   postgres_data:
+#     driver: local
 
 # Define networks
 networks:

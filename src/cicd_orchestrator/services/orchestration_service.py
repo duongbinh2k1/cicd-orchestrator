@@ -47,6 +47,13 @@ class OrchestrationService:
         self._email_monitoring_running = False
         self._last_email_check: Optional[datetime] = None
 
+    @staticmethod
+    def _clean_error_message(message: str) -> str:
+        """Clean error message by trimming whitespace and normalizing line endings."""
+        if not message:
+            return ""
+        return message.strip().replace('\r\n', '\n').replace('\r', '\n')
+
     async def start_email_monitoring(self):
         """Start email monitoring as part of orchestration."""
         if self._email_monitoring_running:
@@ -98,7 +105,7 @@ class OrchestrationService:
     async def _check_and_process_emails(self):
         """Check for new emails and process them through orchestration."""
         try:
-            from .email_service import EmailUtils
+            from .email import EmailUtils
             
             logger.debug("Orchestrator checking for new emails")
             
@@ -174,7 +181,7 @@ class OrchestrationService:
 
     async def _process_email_message(self, msg):
         """Process individual email message through orchestration workflow."""
-        from .email_service import EmailUtils
+        from .email import EmailUtils
         
         try:
             # Check if we've already processed this message
@@ -195,7 +202,7 @@ class OrchestrationService:
             
             if not gitlab_headers:
                 processed_email.status = "no_gitlab_headers"
-                processed_email.error_message = error_msg
+                processed_email.error_message = self._clean_error_message(error_msg)
                 await self.db.commit()
                 
                 logger.warning(
@@ -207,18 +214,18 @@ class OrchestrationService:
                 return
 
             # Update processed email with GitLab data
-            processed_email.project_id = gitlab_headers["project_id"]
-            processed_email.project_name = gitlab_headers["project_name"]
-            processed_email.project_path = gitlab_headers["project_path"]
-            processed_email.pipeline_id = gitlab_headers["pipeline_id"]
-            processed_email.pipeline_ref = gitlab_headers["pipeline_ref"]
-            processed_email.pipeline_status = gitlab_headers["pipeline_status"]
+            processed_email.project_id = gitlab_headers.get("project_id")
+            processed_email.project_name = gitlab_headers.get("project_name")
+            processed_email.project_path = gitlab_headers.get("project_path")
+            processed_email.pipeline_id = gitlab_headers.get("pipeline_id")
+            processed_email.pipeline_ref = gitlab_headers.get("pipeline_ref")
+            processed_email.pipeline_status = gitlab_headers.get("pipeline_status")
             
             # Store email content
-            if msg.html:
-                processed_email.error_message = msg.html
-            elif msg.text:
-                processed_email.error_message = msg.text
+            if hasattr(msg, 'html') and msg.html:
+                processed_email.error_message = self._clean_error_message(msg.html)
+            elif hasattr(msg, 'text') and msg.text:
+                processed_email.error_message = self._clean_error_message(msg.text)
             
             processed_email.status = "processing_pipeline"
             await self.db.commit()
@@ -259,7 +266,7 @@ Processing Details:
 === ORIGINAL EMAIL CONTENT ===
 {processed_email.error_message or 'No email content'}
 """
-                    processed_email.error_message = analysis_summary
+                    processed_email.error_message = self._clean_error_message(analysis_summary)
                 
                 # Store GitLab logs if orchestrator fetched them
                 if orchestration_result.job_logs:
@@ -287,7 +294,7 @@ Processing Details:
                 
             except Exception as orchestration_error:
                 processed_email.status = "orchestration_failed"
-                processed_email.error_message = f"Orchestration failed: {str(orchestration_error)}\n\nOriginal email:\n{processed_email.error_message}"
+                processed_email.error_message = self._clean_error_message(f"Orchestration failed: {str(orchestration_error)}\n\nOriginal email:\n{processed_email.error_message}")
                 logger.error(
                     "Orchestration failed for email",
                     project_id=gitlab_headers["project_id"],
@@ -307,7 +314,7 @@ Processing Details:
                         error_content += f"\n\n--- EMAIL HTML CONTENT ---\n{msg.html}"
                     elif hasattr(msg, 'text') and msg.text:
                         error_content += f"\n\n--- EMAIL TEXT CONTENT ---\n{msg.text}"
-                    processed_email.error_message = error_content
+                    processed_email.error_message = self._clean_error_message(error_content)
                     await self.db.commit()
             except Exception as commit_error:
                 logger.error(
@@ -327,7 +334,8 @@ Processing Details:
         """Check if email message has already been processed."""
         try:
             # First check by message_id (more reliable)
-            message_id_raw = msg.headers.get("message-id")
+            headers_lower = {k.lower(): v for k, v in msg.headers.items()}
+            message_id_raw = headers_lower.get("message-id")
             if isinstance(message_id_raw, tuple) and message_id_raw:
                 message_id = message_id_raw[0]
             else:

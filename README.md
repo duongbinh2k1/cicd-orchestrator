@@ -19,7 +19,7 @@ An AI-powered CI/CD error analysis and remediation orchestrator that automatical
 ### Prerequisites
 
 - Python 3.11+
-- PostgreSQL database
+- Oracle database (or PostgreSQL for legacy support)
 - Docker and Docker Compose (optional)
 - GitLab instance with API access (for webhook mode)
 - Email account with IMAP access (for email mode)
@@ -126,7 +126,7 @@ TRIGGER_MODE=both
 |----------|-------------|----------|---------|
 | `SECRET_KEY` | Application secret key | Yes | - |
 | `TRIGGER_MODE` | How to trigger analysis (webhook/email/both) | No | webhook |
-| `DATABASE_URL` | PostgreSQL connection URL | Yes | - |
+| `DATABASE_URL` | Oracle connection URL | Yes | - |
 | `OPENAI_API_KEY` | OpenAI API key | Yes | - |
 | `OPENAI_BASE_URL` | OpenAI API base URL (for OpenRouter) | No | - |
 | `LOG_LEVEL` | Logging level | No | INFO |
@@ -222,11 +222,11 @@ Example:
 # In database_setup.py
 async def create_my_new_table(conn) -> None:
     create_table_sql = """
-    CREATE TABLE IF NOT EXISTS my_new_table (
-        id SERIAL PRIMARY KEY,
-        name VARCHAR(255) NOT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
+    CREATE TABLE my_new_table (
+        id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        name VARCHAR2(255) NOT NULL,
+        created_at TIMESTAMP DEFAULT SYSTIMESTAMP
+    )
     """
     await conn.execute(text(create_table_sql))
     logger.info("Created my_new_table")

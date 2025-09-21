@@ -49,8 +49,8 @@ dependencies = [
     "alembic>=1.13.0",
     "greenlet>=3.0.0",
     
-    # Async database driver
-    "asyncpg>=0.29.0",
+    # Oracle database driver
+    "oracledb>=1.4.0",
     
     # Logging and monitoring
     "structlog>=23.2.0",
@@ -65,6 +65,9 @@ dependencies = [
     
     # Email processing
     "imap-tools>=1.0.0",
+    
+    # Proxy support
+    "python-socks>=2.4.0",
     
     # CLI utilities
     "typer>=0.9.0",
