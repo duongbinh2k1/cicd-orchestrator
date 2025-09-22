@@ -3,7 +3,7 @@
 from fastapi import FastAPI
 import structlog
 
-from ..api.routers import webhooks, health, analysis, test_endpoints
+from ..api.routers import webhooks, health, analysis
 from .config import settings
 
 logger = structlog.get_logger(__name__)
@@ -22,7 +22,6 @@ def configure_routes(app: FastAPI) -> None:
     # Development routes (only in development)
     if settings.environment == "development":
         try:
-            app.include_router(test_endpoints.router)
             logger.info("Test endpoints loaded successfully")
         except Exception as e:
             logger.warning("Could not load test endpoints", error=str(e))
