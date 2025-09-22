@@ -36,7 +36,7 @@ class ProcessedEmail(Base):
     pipeline_status = Column(String)
     
     # Processing status and metadata
-    status = Column(String)  # pending, fetched, fetching_gitlab_data, processing_pipeline, completed, no_gitlab_headers, error
+    status = Column(String, default='pending')  # pending, fetched, fetching_gitlab_data, processing_pipeline, completed, no_gitlab_headers, error
     error_message = Column(Text, nullable=True)  # Có thể chứa HTML content lớn
     gitlab_error_log = Column(Text, nullable=True)  # GitLab job logs for failed pipelines
     
